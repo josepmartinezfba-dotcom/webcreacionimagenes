@@ -69,14 +69,21 @@
       "vae": ["3", 0],
       "pixels": ["4", 0],
       "mask": ["5", 0],
-      "noise_mask": true
+      "noise_mask": false
     },
     "_meta": { "title": "Inpaint Model Conditioning" }
+  },
+  "13": {
+    "class_type": "DifferentialDiffusion",
+    "inputs": {
+      "model": ["1", 0]
+    },
+    "_meta": { "title": "Differential Diffusion" }
   },
   "10": {
     "class_type": "KSampler",
     "inputs": {
-      "model": ["1", 0],
+      "model": ["13", 0],
       "positive": ["9", 0],
       "negative": ["9", 1],
       "latent_image": ["9", 2],

@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
-import { buildExpandedCanvas, reinsertOriginalCard } from '@/lib/image/canvas';
+import sharp from 'sharp';
+import { buildExpandedCanvas, reinsertOriginalCard, upscaleFinal3x3ToOriginalSize } from '@/lib/image/canvas';
 import { splitIntoPanels } from '@/lib/image/split';
 import { createZipBuffer } from '@/lib/image/zip';
 import { checkComfyStatus, fetchOutputImage, queuePrompt, uploadImage, waitForPrompt } from '@/lib/comfyui/client';
@@ -16,6 +17,8 @@ export interface RunOutpaintParams {
   /** Rectangulo del artwork/ilustracion dentro de sourceImageBuffer (referencia visual para el outpainting). */
   artworkCropRect: Rect;
   quality: QualityPreset;
+  /** Reescala por codigo (sin volver a generar) las 8 imagenes y la preview al tamaño real de la carta subida. */
+  exportOriginalSize: boolean;
   positivePrompt?: string;
   negativePrompt?: string;
   seed: number;
@@ -112,9 +115,33 @@ export async function runOutpaintJob(params: RunOutpaintParams): Promise<void> {
     updateJob(jobId, { phase: 'compositing' });
     const generatedBuffer = await fetchOutputImage(params.comfyUrl, output.filename, output.subfolder, output.type);
 
-    const finalPng = await reinsertOriginalCard(generatedBuffer, canvasResult.resizedFullCardPng, canvasResult.cardPlacement);
+    const generatedFinalPng = await reinsertOriginalCard(
+      generatedBuffer,
+      canvasResult.resizedFullCardPng,
+      canvasResult.cardPlacement
+    );
 
-    const panels = await splitIntoPanels(finalPng, canvasResult.panelWidth, canvasResult.panelHeight);
+    let finalPng = generatedFinalPng;
+    let panelWidth = canvasResult.panelWidth;
+    let panelHeight = canvasResult.panelHeight;
+
+    if (params.exportOriginalSize) {
+      const cardMeta = await sharp(params.sourceImageBuffer).metadata();
+      if (cardMeta.width && cardMeta.height) {
+        const upscaled = await upscaleFinal3x3ToOriginalSize(
+          generatedFinalPng,
+          canvasResult.panelWidth,
+          canvasResult.panelHeight,
+          cardMeta.width,
+          cardMeta.height
+        );
+        finalPng = upscaled.finalPng;
+        panelWidth = upscaled.panelWidth;
+        panelHeight = upscaled.panelHeight;
+      }
+    }
+
+    const panels = await splitIntoPanels(finalPng, panelWidth, panelHeight);
     const zipBuffer = await createZipBuffer(panels, finalPng);
 
     updateJob(jobId, {
@@ -123,10 +150,10 @@ export async function runOutpaintJob(params: RunOutpaintParams): Promise<void> {
         panels,
         previewPng: finalPng,
         zipBuffer,
-        canvasWidth: canvasResult.canvasWidth,
-        canvasHeight: canvasResult.canvasHeight,
-        panelWidth: canvasResult.panelWidth,
-        panelHeight: canvasResult.panelHeight,
+        canvasWidth: panelWidth * 3,
+        canvasHeight: panelHeight * 3,
+        panelWidth,
+        panelHeight,
         seedUsed: params.seed
       }
     });

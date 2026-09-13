@@ -1,6 +1,6 @@
 'use client';
 
-import { QUALITY_PRESETS, computePanelDimensions, type QualityPreset } from '@/lib/cardGeometry';
+import { QUALITY_PRESETS, computeExportPanelSize, computePanelDimensions, type QualityPreset } from '@/lib/cardGeometry';
 import type { GenerateFormValues } from '@/lib/types';
 
 interface ControlsPanelProps {
@@ -30,6 +30,8 @@ export default function ControlsPanel({
   }
 
   const panelSize = cardSize ? computePanelDimensions(cardSize.width, cardSize.height, values.quality) : null;
+  const exportSize =
+    cardSize && panelSize ? computeExportPanelSize(panelSize.width, panelSize.height, cardSize.width, cardSize.height) : null;
 
   return (
     <div className="controls-panel">
@@ -53,10 +55,27 @@ export default function ControlsPanel({
         </div>
         <p className="hint">
           {panelSize
-            ? `Tamaño de cada una de las 9 imagenes: ${panelSize.width} x ${panelSize.height} px (misma proporcion que tu carta). Lienzo completo: ${panelSize.width * 3} x ${panelSize.height * 3} px.`
+            ? `Resolucion de generacion (lo que procesa FLUX): ${panelSize.width} x ${panelSize.height} px por imagen (misma proporcion que tu carta). Lienzo completo: ${panelSize.width * 3} x ${panelSize.height * 3} px.`
             : 'Sube una carta para calcular el tamaño exacto de cada imagen (se usa la proporcion de la carta completa).'}
         </p>
       </div>
+
+      <label className="field field--checkbox">
+        <span className="field--checkbox__row">
+          <input
+            type="checkbox"
+            checked={values.exportOriginalSize}
+            disabled={disabled}
+            onChange={(e) => set('exportOriginalSize', e.target.checked)}
+          />
+          <span>Exportar al tamaño original de la carta</span>
+        </span>
+        <span className="hint">
+          {exportSize
+            ? `Reescala por codigo (sin volver a generar) las 8 imagenes y la preview a ${exportSize.width} x ${exportSize.height} px, el tamaño de tu carta. No añade detalle nuevo, solo cambia el tamaño de archivo.`
+            : 'Reescala las 8 imagenes exportadas (por codigo, sin volver a generar) al tamaño real de la carta que subas.'}
+        </span>
+      </label>
 
       <label className="field">
         <span>Prompt (opcional)</span>

@@ -73,3 +73,35 @@ export function computePanelDimensions(
 export function isQualityPreset(value: unknown): value is QualityPreset {
   return value === 'low' || value === 'normal' || value === 'high';
 }
+
+/**
+ * Calcula el tamaño de panel para EXPORTAR a "tamaño original de carta".
+ *
+ * La generacion ocurre a una resolucion reducida (`generatedPanelWidth` x
+ * `generatedPanelHeight`, ver `computePanelDimensions`) para no saturar una
+ * GPU de 8 GB; esta funcion solo decide a que tamaño se reescala (por
+ * codigo, con Lanczos, sin volver a pasar por la IA) el resultado ya
+ * generado.
+ *
+ * Importante: `generatedPanelWidth/generatedPanelHeight` estan alineados a
+ * multiplos de 16, así que su relacion de aspecto puede diferir unos
+ * decimales de la relacion de aspecto exacta de la carta
+ * (`cardWidth/cardHeight`). Para no deformar la carta al escalar (nada de
+ * `fit: "fill"` forzando el tamaño exacto de la carta en los dos ejes a la
+ * vez), esta funcion escala de forma UNIFORME usando el eje largo de la
+ * carta como referencia: ese eje coincide exactamente con el tamaño
+ * original; el eje corto puede quedar a 1-2 px del tamaño exacto de la
+ * carta (nunca deformado, solo redondeado).
+ */
+export function computeExportPanelSize(
+  generatedPanelWidth: number,
+  generatedPanelHeight: number,
+  cardWidth: number,
+  cardHeight: number
+): { width: number; height: number } {
+  const isPortrait = cardHeight >= cardWidth;
+  const scale = isPortrait ? cardHeight / generatedPanelHeight : cardWidth / generatedPanelWidth;
+  return isPortrait
+    ? { width: Math.max(1, Math.round(generatedPanelWidth * scale)), height: cardHeight }
+    : { width: cardWidth, height: Math.max(1, Math.round(generatedPanelHeight * scale)) };
+}

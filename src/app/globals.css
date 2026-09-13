@@ -239,6 +239,18 @@ body {
   gap: 8px;
 }
 
+.field--checkbox__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.field--checkbox__row input {
+  width: auto;
+}
+
 .quality-options {
   display: flex;
   flex-direction: column;

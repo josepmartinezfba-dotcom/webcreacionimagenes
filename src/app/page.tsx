@@ -12,6 +12,7 @@ import type { GenerateFormValues, ProgressResponse, Rect } from '@/lib/types';
 
 const DEFAULT_VALUES: GenerateFormValues = {
   quality: 'normal',
+  exportOriginalSize: true,
   positivePrompt: '',
   negativePrompt: '',
   seed: 0,
@@ -61,6 +62,7 @@ export default function HomePage() {
     form.append('cropWidth', String(cropRect.width));
     form.append('cropHeight', String(cropRect.height));
     form.append('quality', values.quality);
+    form.append('exportOriginalSize', String(values.exportOriginalSize));
     form.append('positivePrompt', values.positivePrompt);
     form.append('negativePrompt', values.negativePrompt);
     form.append('seed', String(values.seed));

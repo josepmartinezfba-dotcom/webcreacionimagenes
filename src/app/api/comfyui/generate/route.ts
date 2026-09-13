@@ -45,6 +45,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const exportOriginalSize = form.get('exportOriginalSize') === 'true';
     const positivePrompt = (form.get('positivePrompt') as string) || undefined;
     const negativePrompt = (form.get('negativePrompt') as string) || undefined;
     const comfyUrl = (form.get('comfyUrl') as string) || DEFAULT_COMFYUI_URL;
@@ -64,6 +65,7 @@ export async function POST(request: NextRequest) {
       sourceImageBuffer,
       artworkCropRect: { x: cropX, y: cropY, width: cropWidth, height: cropHeight },
       quality,
+      exportOriginalSize,
       positivePrompt,
       negativePrompt,
       seed,

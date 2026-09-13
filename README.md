@@ -39,8 +39,12 @@ horizontal. Ver [Geometría de la composición](#geometría-de-la-composición).
   cero), lo que da la mejor continuidad de líneas, perspectiva, iluminación
   y estilo para este caso de uso.
 - **Workflow:** `comfyui-workflows/flux_fill_outpaint.json` (formato API de
-  ComfyUI). Usa el nodo nativo `InpaintModelConditioning` + `FluxGuidance`,
-  el patrón recomendado oficialmente para FLUX Fill.
+  ComfyUI). Replica línea por línea la parte de sampling/inpainting de la
+  plantilla oficial actual de ComfyUI (`flux_fill_outpaint_example`):
+  `InpaintModelConditioning` con `noise_mask: false` + `DifferentialDiffusion`
+  aplicado al modelo antes del `KSampler` (20 steps, cfg 1, euler, normal,
+  denoise 1) + `FluxGuidance` a 30. Ver el detalle y por qué en
+  `comfyui-workflows/README.md`.
 - **Carga del UNET:** por defecto, cuantizado en **GGUF** (`UnetLoaderGGUF`
   del custom node [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF)
   de city96), pensado para GPUs de 8 GB de VRAM. CLIP (`clip_l` + `t5xxl`)
@@ -75,12 +79,24 @@ grandes (la cuantización GGUF reduce el peso del modelo en VRAM, pero no
 la memoria que consume el cálculo al generar una imagen grande). Si tu GPU
 aguanta más, "Alta" da más detalle a costa de velocidad y VRAM.
 
+**Exportar al tamaño original de la carta** (activado por defecto): la
+generación siempre ocurre a la resolución reducida de arriba, pero antes
+de exportar puedes reescalar por código (Lanczos, en CPU, sin volver a
+pasar por FLUX) las 8 imágenes y la preview al tamaño real de la carta que
+subiste. El eje más largo coincide exactamente con el de tu carta; el eje
+corto puede quedar 1-2 px por debajo debido al redondeo a múltiplos de 16
+usado durante la generación — nunca se deforma la imagen para forzar el
+tamaño exacto (nada de `fit: "fill"` a ciegas). Esto no añade detalle real
+(la IA generó a la resolución reducida), solo cambia el tamaño de archivo
+para que encaje con el de tu carta original.
+
 Separación de conceptos en el código (`src/lib/image/canvas.ts`):
 
-- **`originalCard`**: la carta completa tal cual la subiste. Se
-  redimensiona (sin recortar ni deformar, porque su proporción ya define
-  la del panel) y se reinserta intacta en la celda central **después** de
-  generar.
+- **`originalCard`**: la carta completa tal cual la subiste. Se ajusta sin
+  deformar dentro de la celda central (mismo `fit: "contain"` que el
+  artwork, nunca `fit: "fill"` — así el redondeo a múltiplos de 16 nunca
+  estira la carta, aunque deje como mucho 1-2 px de margen dentro de la
+  celda) y se reinserta intacta **después** de generar.
 - **`artworkCrop`**: el rectángulo que marcas a mano sobre la ilustración.
   Es la única referencia visual que ve FLUX para continuar el escenario
   (líneas, colores, perspectiva); no incluye el marco ni el texto de la
@@ -89,7 +105,8 @@ Separación de conceptos en el código (`src/lib/image/canvas.ts`):
   máscara.
 - **`final3x3`**: `generatedExpansion` con la carta completa
   (`originalCard`) vuelta a pegar exactamente en la celda central, y de ahí
-  se recortan matemáticamente las 8 imágenes exteriores.
+  se recortan matemáticamente las 8 imágenes exteriores (opcionalmente
+  reescaladas al tamaño original antes del recorte, ver arriba).
 
 ## Arquitectura del proyecto
 
@@ -221,8 +238,9 @@ Requisitos: [Node.js LTS](https://nodejs.org/) (18 o superior).
    texto): es la referencia visual que usará la IA, no lo que aparecerá en
    el centro del resultado (el centro será la carta completa que subiste).
 3. Elige la calidad (Baja/Normal/Alta) — el tamaño exacto de cada imagen se
-   calcula solo y se muestra en pantalla — y opcionalmente prompt, negative
-   prompt, seed, steps, guidance y denoise.
+   calcula solo y se muestra en pantalla —, si quieres **exportar al
+   tamaño original de la carta** (activado por defecto), y opcionalmente
+   prompt, negative prompt, seed, steps, guidance y denoise.
 4. Pulsa **Generar expansión**. La barra de progreso muestra el estado
    (subida, cola de ComfyUI, generación, recomposición).
 5. Revisa la previsualización completa y la cuadrícula 3x3 (haz clic en
@@ -245,9 +263,16 @@ sin necesidad de ComfyUI): construye cartas sintéticas con `sharp` y
 comprueba matemáticamente la parte del pipeline que no depende de IA —
 que el lienzo mide siempre 3×panel, que los 8 PNG exportados miden
 exactamente panelWidth×panelHeight, que la celda central del resultado es
-la carta completa (no el recorte del artwork), que la relación de aspecto
-sigue la de la carta (y solo es 1:1 si la carta es cuadrada) en orientación
-vertical y horizontal, y la convención de la máscara de outpainting.
+la carta completa sin deformar (no el recorte del artwork) dentro de una
+tolerancia de redondeo explícita (no se afirma una identidad binaria con
+el archivo original, que sería falsa en cuanto hay cualquier reescalado),
+que la relación de aspecto sigue la de la carta (y solo es 1:1 si la carta
+es cuadrada) en orientación vertical y horizontal, que el degradado
+cuadrático de la máscara nunca alcanza el centro del artwork por pequeño
+que sea, que `computeExportPanelSize`/`upscaleFinal3x3ToOriginalSize`
+reescalan al tamaño original sin deformar de más, y que el propio JSON del
+workflow tiene `DifferentialDiffusion` conectado antes del `KSampler` con
+`noise_mask: false` en `InpaintModelConditioning`.
 
 ## Comprobar que todo está conectado
 

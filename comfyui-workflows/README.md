@@ -40,41 +40,72 @@ oficial sin cuantizar, sustituye el nodo `UnetLoaderGGUF` por el nativo
 ## Grafo de nodos
 
 ```
-UnetLoaderGGUF (FLUX Fill Q4_K_S) ───┐
-DualCLIPLoader (clip_l + t5xxl) ───┐  │
-VAELoader (ae.safetensors) ─────┐  │  │
-                                 │  │  │
-LoadImage (lienzo) ──┐           │  │  │
-LoadImageMask (mask)─┼─► InpaintModelConditioning ──► KSampler ──► VAEDecode ──► SaveImage
+UnetLoaderGGUF (FLUX Fill Q4_K_S) ──► DifferentialDiffusion ──┐
+DualCLIPLoader (clip_l + t5xxl) ───┐                          │
+VAELoader (ae.safetensors) ─────┐  │                          │
+                                 │  │                          │
+LoadImage (lienzo) ──┐           │  │                          ▼
+LoadImageMask (mask)─┼─► InpaintModelConditioning ────────► KSampler ──► VAEDecode ──► SaveImage
 CLIPTextEncode (+) ──┤           ▲  │
 CLIPTextEncode (-) ──┴► FluxGuidance
 ```
 
-## Convención de la máscara (`LoadImageMask` + `InpaintModelConditioning`)
+Este grafo replica linea por linea la parte de sampling/inpainting de la
+plantilla oficial actual de ComfyUI `flux_fill_outpaint_example`
+(`DifferentialDiffusion` sobre el MODEL antes del `KSampler`,
+`InpaintModelConditioning` con `noise_mask: false`, `KSampler` a 20 steps /
+cfg 1 / euler / normal / denoise 1, `FluxGuidance` a 30), sustituyendo
+unicamente `UNETLoader` por `UnetLoaderGGUF` para poder usar el checkpoint
+GGUF cuantizado en 8 GB de VRAM. `DifferentialDiffusion` parchea el
+`MODEL` de forma generica (`model.clone()` +
+`set_model_denoise_mask_function()`, sin tocar nada especifico del
+formato de los pesos), asi que es totalmente compatible con el `MODEL`
+que devuelve `UnetLoaderGGUF` — el mismo mecanismo que ya hace compatibles
+los LoRA loaders nativos con modelos GGUF.
 
-Verificada contra el código fuente de ComfyUI (`InpaintModelConditioning.encode()`):
+## Convención de la máscara (`LoadImageMask` + `DifferentialDiffusion`)
+
+Verificada contra el código fuente de ComfyUI
+(`InpaintModelConditioning.encode()` y `DifferentialDiffusion.forward()`):
 
 - **Blanco (valor 1.0)** = zona que FLUX debe **generar** (todo el lienzo
   salvo el recorte del artwork).
 - **Negro (valor 0.0)** = zona que se **conserva** como contexto real (el
   recorte del artwork, colocado como semilla en el centro del lienzo).
 
-`InpaintModelConditioning` redondea la máscara a 0/1 y, antes de
-codificarla con el VAE, sustituye por gris neutro (0.5) todos los píxeles
-marcados como "generar". Esto tiene una consecuencia importante para el
-diseño de `canvas.png`: **el color de fondo que pintemos fuera del artwork
-no influye en el resultado**, porque ComfyUI lo descarta de todas formas.
-Por eso el lienzo se rellena con gris neutro (antes se usaba el color
-dominante del artwork, que no tenía ningún efecto real y solo dificultaba
-depurar la imagen visualmente).
+Con `noise_mask: false` (como en la plantilla oficial), `InpaintModelConditioning`
+ya NO añade la máscara al latente para que el sampler haga el blending
+clásico "0/1"; en su lugar, `DifferentialDiffusion` intercepta el proceso
+de denoising y usa el **valor continuo** de la máscara para decidir, píxel
+a píxel, en qué punto del programa de ruido empieza a modificarse ese
+píxel — cuanto más cerca de 1.0, antes se libera para generarse; cuanto
+más cerca de 0.0, más tarde (casi no se toca). Por eso una máscara binaria
+pura desaprovecha la mitad del mecanismo, y por eso la propia plantilla
+oficial de outpainting de ComfyUI (nodo `ImagePadForOutpaint`) genera un
+degradado **cuadrático** en el borde en vez de un corte duro.
 
-El borde del rectángulo protegido se difumina unos pocos píxeles
-(`createMaskBuffer(..., featherPx)`) antes de enviarlo a ComfyUI. Esto no
-cambia el límite "duro" que ve `InpaintModelConditioning` (que redondea a
-0/1 en torno al 50% del degradado), pero sí suaviza el `noise_mask` que usa
-el sampler para mezclar el latente conocido con el generado durante el
-denoising — reduce la costura justo en el borde del artwork sin agrandar
-la zona realmente protegida.
+`createMaskBuffer` (`src/lib/image/mask.ts`) replica exactamente esa misma
+fórmula: para cada píxel a distancia `d` del borde del rectángulo
+protegido (si `d < featherPx`), `v = (featherPx - d) / featherPx` y el
+valor de máscara es `v²` (0 en el centro del degradado hacia adentro, 1 en
+el borde exterior). El radio del degradado (`featherPx`) se calcula como
+un 6% del lado corto **del recorte de artwork ya colocado en el lienzo**
+(no del panel completo, que podría ser mucho más grande si el artwork no
+llena la celda), y nunca supera 1/4 de ese lado corto — así, por pequeño
+que sea el artwork, su centro siempre queda totalmente protegido (valor
+0).
+
+Nota aparte: `InpaintModelConditioning` (con o sin `noise_mask`) también
+sustituye por gris neutro (0.5) los píxeles marcados como "generar" antes
+de codificar la imagen con el VAE. Por eso **el color de fondo que
+pintemos fuera del artwork en `canvas.png` no influye en el resultado**
+(se descarta de todas formas): el lienzo se rellena con gris neutro solo
+para que una inspección manual del archivo sea fácil de leer.
+
+Como la carta original completa se reinserta por código sobre TODA la
+celda central después de generar (`reinsertOriginalCard`), el degradado
+"comiéndose" unos pocos píxeles hacia el interior del rectángulo protegido
+es inofensivo: esa celda se sustituye entera de todos modos.
 
 ## Por qué el resultado puede salir como una textura plana/marrón
 

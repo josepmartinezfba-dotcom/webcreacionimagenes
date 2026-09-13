@@ -9,6 +9,8 @@ export interface Rect {
 
 export interface GenerateFormValues {
   quality: QualityPreset;
+  /** Reescala por codigo (sin volver a generar) las 8 imagenes y la preview al tamaño real de la carta subida. */
+  exportOriginalSize: boolean;
   positivePrompt: string;
   negativePrompt: string;
   seed: number;
