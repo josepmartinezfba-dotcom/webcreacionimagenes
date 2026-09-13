@@ -1,5 +1,6 @@
 'use client';
 
+import { QUALITY_PRESETS, computePanelDimensions, type QualityPreset } from '@/lib/cardGeometry';
 import type { GenerateFormValues } from '@/lib/types';
 
 interface ControlsPanelProps {
@@ -9,7 +10,11 @@ interface ControlsPanelProps {
   onGenerate: () => void;
   disabled: boolean;
   canGenerate: boolean;
+  /** Tamaño natural de la carta subida (para calcular y mostrar W x H por panel). */
+  cardSize: { width: number; height: number } | null;
 }
+
+const QUALITY_ORDER: QualityPreset[] = ['low', 'normal', 'high'];
 
 export default function ControlsPanel({
   values,
@@ -17,37 +22,40 @@ export default function ControlsPanel({
   onRandomSeed,
   onGenerate,
   disabled,
-  canGenerate
+  canGenerate,
+  cardSize
 }: ControlsPanelProps) {
   function set<K extends keyof GenerateFormValues>(key: K, value: GenerateFormValues[K]) {
     onChange({ ...values, [key]: value });
   }
 
+  const panelSize = cardSize ? computePanelDimensions(cardSize.width, cardSize.height, values.quality) : null;
+
   return (
     <div className="controls-panel">
-      <div className="controls-grid">
-        <label className="field">
-          <span>Ancho de cada panel (px)</span>
-          <input
-            type="number"
-            min={64}
-            step={16}
-            value={values.panelWidth}
-            disabled={disabled}
-            onChange={(e) => set('panelWidth', Number(e.target.value))}
-          />
-        </label>
-        <label className="field">
-          <span>Alto de cada panel (px)</span>
-          <input
-            type="number"
-            min={64}
-            step={16}
-            value={values.panelHeight}
-            disabled={disabled}
-            onChange={(e) => set('panelHeight', Number(e.target.value))}
-          />
-        </label>
+      <div className="field">
+        <span>Calidad / resolucion de cada imagen</span>
+        <div className="quality-options">
+          {QUALITY_ORDER.map((key) => (
+            <label key={key} className={`quality-option ${values.quality === key ? 'is-selected' : ''}`}>
+              <input
+                type="radio"
+                name="quality"
+                value={key}
+                checked={values.quality === key}
+                disabled={disabled}
+                onChange={() => set('quality', key)}
+              />
+              <span className="quality-option__label">{QUALITY_PRESETS[key].label}</span>
+              <span className="quality-option__desc">{QUALITY_PRESETS[key].description}</span>
+            </label>
+          ))}
+        </div>
+        <p className="hint">
+          {panelSize
+            ? `Tamaño de cada una de las 9 imagenes: ${panelSize.width} x ${panelSize.height} px (misma proporcion que tu carta). Lienzo completo: ${panelSize.width * 3} x ${panelSize.height * 3} px.`
+            : 'Sube una carta para calcular el tamaño exacto de cada imagen (se usa la proporcion de la carta completa).'}
+        </p>
       </div>
 
       <label className="field">

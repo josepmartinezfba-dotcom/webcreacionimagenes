@@ -50,6 +50,69 @@ CLIPTextEncode (+) ──┤           ▲  │
 CLIPTextEncode (-) ──┴► FluxGuidance
 ```
 
+## Convención de la máscara (`LoadImageMask` + `InpaintModelConditioning`)
+
+Verificada contra el código fuente de ComfyUI (`InpaintModelConditioning.encode()`):
+
+- **Blanco (valor 1.0)** = zona que FLUX debe **generar** (todo el lienzo
+  salvo el recorte del artwork).
+- **Negro (valor 0.0)** = zona que se **conserva** como contexto real (el
+  recorte del artwork, colocado como semilla en el centro del lienzo).
+
+`InpaintModelConditioning` redondea la máscara a 0/1 y, antes de
+codificarla con el VAE, sustituye por gris neutro (0.5) todos los píxeles
+marcados como "generar". Esto tiene una consecuencia importante para el
+diseño de `canvas.png`: **el color de fondo que pintemos fuera del artwork
+no influye en el resultado**, porque ComfyUI lo descarta de todas formas.
+Por eso el lienzo se rellena con gris neutro (antes se usaba el color
+dominante del artwork, que no tenía ningún efecto real y solo dificultaba
+depurar la imagen visualmente).
+
+El borde del rectángulo protegido se difumina unos pocos píxeles
+(`createMaskBuffer(..., featherPx)`) antes de enviarlo a ComfyUI. Esto no
+cambia el límite "duro" que ve `InpaintModelConditioning` (que redondea a
+0/1 en torno al 50% del degradado), pero sí suaviza el `noise_mask` que usa
+el sampler para mezclar el latente conocido con el generado durante el
+denoising — reduce la costura justo en el borde del artwork sin agrandar
+la zona realmente protegida.
+
+## Por qué el resultado puede salir como una textura plana/marrón
+
+Si el recorte del artwork es muy pequeño en relación con el lienzo 3x3
+completo, FLUX tiene que extrapolar una superficie enorme a partir de muy
+poco contexto real en una sola pasada — un modo de fallo conocido de los
+modelos de outpainting, que ante una extrapolación extrema tienden a
+"rendirse" y producir un relleno de baja frecuencia (plano/uniforme) en
+vez de continuar el detalle. La aplicación mitiga esto calculando el
+tamaño de panel a partir de la carta completa (no de un ancho/alto
+arbitrario) y maximizando el tamaño del recorte del artwork dentro de esa
+celda central (ver `README.md` del proyecto, sección "Geometría de la
+composición"); si aun así el resultado sale plano, recorta el artwork lo
+más grande posible o prueba con calidad "Baja" primero.
+
+## Prompt por defecto
+
+Los prompts por defecto (en `workflow_map.json` y en los nodos
+`CLIPTextEncode` de este JSON) están escritos en inglés a propósito — los
+codificadores de texto de FLUX (CLIP-L y T5-XXL) siguen instrucciones de
+forma más fiable en inglés — y están pensados para **continuar
+exactamente la escena visible**, no para generar contenido nuevo:
+
+- **Positivo**: pide una continuación sin costuras del mismo estilo,
+  paleta, iluminación y perspectiva, extendiendo árboles/cielo/terreno/
+  agua/edificios "más allá del marco", y pide explícitamente "no new
+  characters, no text".
+- **Negativo**: excluye specíficamente marcos de carta, texto, logos,
+  marcas de agua, collages/rejillas, personajes duplicados y rellenos
+  planos/uniformes — los artefactos más comunes al hacer outpainting de
+  una carta coleccionable.
+
+Si el usuario escribe su propio prompt/negative prompt en la interfaz,
+sustituye por completo al valor por defecto correspondiente (ver
+`buildPrompt` en `src/lib/workflow/loader.ts`); dejarlos vacíos no es un
+problema, porque el comportamiento por defecto ya está orientado a
+continuar el escenario existente.
+
 ## Capa de abstracción (`workflow_map.json`)
 
 La aplicación **nunca** escribe directamente `workflow["10"].inputs.seed`.

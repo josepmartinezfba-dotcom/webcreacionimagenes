@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createJob } from '@/lib/jobs';
 import { runOutpaintJob } from '@/lib/pipeline';
 import { DEFAULT_COMFYUI_URL } from '@/lib/config';
+import { isQualityPreset } from '@/lib/cardGeometry';
 
 export const runtime = 'nodejs';
 
@@ -27,8 +28,6 @@ export async function POST(request: NextRequest) {
     const cropY = requireNumber(form, 'cropY');
     const cropWidth = requireNumber(form, 'cropWidth');
     const cropHeight = requireNumber(form, 'cropHeight');
-    const panelWidth = requireNumber(form, 'panelWidth');
-    const panelHeight = requireNumber(form, 'panelHeight');
     const seed = requireNumber(form, 'seed');
     const steps = requireNumber(form, 'steps');
     const guidance = requireNumber(form, 'guidance');
@@ -37,8 +36,13 @@ export async function POST(request: NextRequest) {
     if (cropWidth <= 0 || cropHeight <= 0) {
       return NextResponse.json({ error: 'El area de recorte del artwork no es valida.' }, { status: 400 });
     }
-    if (panelWidth < 64 || panelHeight < 64) {
-      return NextResponse.json({ error: 'El ancho/alto de panel minimo recomendado es 64px.' }, { status: 400 });
+
+    const quality = form.get('quality');
+    if (!isQualityPreset(quality)) {
+      return NextResponse.json(
+        { error: 'La calidad indicada no es valida (debe ser "low", "normal" o "high").' },
+        { status: 400 }
+      );
     }
 
     const positivePrompt = (form.get('positivePrompt') as string) || undefined;
@@ -58,9 +62,8 @@ export async function POST(request: NextRequest) {
       jobId,
       comfyUrl,
       sourceImageBuffer,
-      cropRect: { x: cropX, y: cropY, width: cropWidth, height: cropHeight },
-      panelWidth,
-      panelHeight,
+      artworkCropRect: { x: cropX, y: cropY, width: cropWidth, height: cropHeight },
+      quality,
       positivePrompt,
       negativePrompt,
       seed,

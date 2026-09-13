@@ -6,21 +6,27 @@ FLUX.1-Fill-dev), sin ningún servicio de pago ni envío de imágenes a
 internet.
 
 ```
-[1] [2] [3]
-[4] [ART] [5]      <- [ART] es tu ilustracion original, intacta
-[6] [7] [8]
+[1]     [2]     [3]
+[4]  [CARTA]     [5]     <- la carta completa, intacta, no solo el artwork
+[6]     [7]     [8]
 ```
+
+Cada una de las 9 celdas (las 8 generadas + la carta central) mide
+**exactamente lo mismo, con la misma relación de aspecto que tu carta**.
+Si tu carta es vertical, el resultado es vertical; si es horizontal, es
+horizontal. Ver [Geometría de la composición](#geometría-de-la-composición).
 
 ## Índice
 
 1. [Qué modelo y workflow usa](#qué-modelo-y-workflow-usa)
-2. [Arquitectura del proyecto](#arquitectura-del-proyecto)
-3. [Instalación de ComfyUI (Windows)](#instalación-de-comfyui-windows)
-4. [Instalación de la aplicación](#instalación-de-la-aplicación)
-5. [Uso](#uso)
-6. [Comprobar que todo está conectado](#comprobar-que-todo-está-conectado)
-7. [Cambiar de modelo o workflow en el futuro](#cambiar-de-modelo-o-workflow-en-el-futuro)
-8. [Solución de problemas](#solución-de-problemas)
+2. [Geometría de la composición](#geometría-de-la-composición)
+3. [Arquitectura del proyecto](#arquitectura-del-proyecto)
+4. [Instalación de ComfyUI (Windows)](#instalación-de-comfyui-windows)
+5. [Instalación de la aplicación](#instalación-de-la-aplicación)
+6. [Uso](#uso)
+7. [Comprobar que todo está conectado](#comprobar-que-todo-está-conectado)
+8. [Cambiar de modelo o workflow en el futuro](#cambiar-de-modelo-o-workflow-en-el-futuro)
+9. [Solución de problemas](#solución-de-problemas)
 
 ---
 
@@ -43,6 +49,47 @@ internet.
   bf16/fp8 si tienes más VRAM.
 - **Todo corre localmente** contra `http://127.0.0.1:8188`, la API HTTP que
   expone ComfyUI cuando se ejecuta en tu ordenador.
+
+## Geometría de la composición
+
+El tamaño de panel **no se introduce a mano**: se calcula automáticamente a
+partir del tamaño real de la carta que subes (no del recorte del artwork),
+para que las 9 celdas sean siempre exactamente iguales entre sí y tengan la
+misma relación de aspecto que la carta.
+
+Ejemplo con una carta vertical de 734×1024 px (relación ≈ 0.717) y calidad
+"Normal":
+
+- cada panel (las 8 imágenes generadas + la carta central): **320×448 px**
+- lienzo completo enviado a ComfyUI: **960×1344 px** (3×320 × 3×448)
+- ningún panel es cuadrado salvo que la carta original lo sea
+
+La calidad elegida en la interfaz (Baja/Normal/Alta) solo cambia el
+tamaño objetivo del lado más largo del panel (320/448/576 px antes de
+redondear a múltiplos de 16); la proporción siempre sale de la carta.
+Se generan resoluciones moderadas a propósito: como la composición 3x3 se
+genera en **una sola pasada** (no 8 llamadas independientes), el lienzo
+real que procesa FLUX ya mide 9 veces el área de un panel, y una GPU de
+8 GB con el modelo GGUF Q4_K_S tiene margen limitado para resoluciones muy
+grandes (la cuantización GGUF reduce el peso del modelo en VRAM, pero no
+la memoria que consume el cálculo al generar una imagen grande). Si tu GPU
+aguanta más, "Alta" da más detalle a costa de velocidad y VRAM.
+
+Separación de conceptos en el código (`src/lib/image/canvas.ts`):
+
+- **`originalCard`**: la carta completa tal cual la subiste. Se
+  redimensiona (sin recortar ni deformar, porque su proporción ya define
+  la del panel) y se reinserta intacta en la celda central **después** de
+  generar.
+- **`artworkCrop`**: el rectángulo que marcas a mano sobre la ilustración.
+  Es la única referencia visual que ve FLUX para continuar el escenario
+  (líneas, colores, perspectiva); no incluye el marco ni el texto de la
+  carta.
+- **`generatedExpansion`**: lo que devuelve ComfyUI a partir del lienzo +
+  máscara.
+- **`final3x3`**: `generatedExpansion` con la carta completa
+  (`originalCard`) vuelta a pegar exactamente en la celda central, y de ahí
+  se recortan matemáticamente las 8 imágenes exteriores.
 
 ## Arquitectura del proyecto
 
@@ -169,14 +216,17 @@ Requisitos: [Node.js LTS](https://nodejs.org/) (18 o superior).
 
 ## Uso
 
-1. Arrastra o selecciona la foto/escaneo de la carta.
-2. Dibuja el rectángulo exacto sobre la ilustración (sin marco ni texto).
-3. Ajusta ancho/alto de cada panel, y opcionalmente prompt, negative
+1. Arrastra o selecciona la foto/escaneo de la carta **completa**.
+2. Dibuja el rectángulo sobre el **artwork/ilustración** (sin marco ni
+   texto): es la referencia visual que usará la IA, no lo que aparecerá en
+   el centro del resultado (el centro será la carta completa que subiste).
+3. Elige la calidad (Baja/Normal/Alta) — el tamaño exacto de cada imagen se
+   calcula solo y se muestra en pantalla — y opcionalmente prompt, negative
    prompt, seed, steps, guidance y denoise.
 4. Pulsa **Generar expansión**. La barra de progreso muestra el estado
    (subida, cola de ComfyUI, generación, recomposición).
 5. Revisa la previsualización completa y la cuadrícula 3x3 (haz clic en
-   cualquier panel exterior para ampliarlo).
+   cualquier panel exterior para ampliarlo; el centro es tu carta original).
 6. Descarga los paneles individuales, usa **Descargar las 8 imágenes** o
    **Descargar ZIP**.
 7. Para variar el resultado: pulsa **Nueva seed** y **Generar expansión**
@@ -187,6 +237,17 @@ Los ficheros exportados son siempre:
 `01_top_left.png · 02_top.png · 03_top_right.png · 04_left.png ·
 05_right.png · 06_bottom_left.png · 07_bottom.png · 08_bottom_right.png ·
 preview_3x3.png` (dentro del ZIP).
+
+## Pruebas automatizadas
+
+`npm test` ejecuta `tests/geometry.test.ts` (Node's test runner vía `tsx`,
+sin necesidad de ComfyUI): construye cartas sintéticas con `sharp` y
+comprueba matemáticamente la parte del pipeline que no depende de IA —
+que el lienzo mide siempre 3×panel, que los 8 PNG exportados miden
+exactamente panelWidth×panelHeight, que la celda central del resultado es
+la carta completa (no el recorte del artwork), que la relación de aspecto
+sigue la de la carta (y solo es 1:1 si la carta es cuadrada) en orientación
+vertical y horizontal, y la convención de la máscara de outpainting.
 
 ## Comprobar que todo está conectado
 
@@ -233,12 +294,26 @@ momento.
   subir el `denoise` a 1.0 y a describir el escenario en el prompt (por
   ejemplo: "bosque frondoso, cielo nublado, montañas al fondo") para guiar
   mejor la continuidad.
-- **Generación muy lenta o error de memoria (CUDA out of memory)**: reduce
-  el ancho/alto de panel, reduce `steps`, o cambia a una versión fp8/GGUF
-  del modelo (ver sección de instalación).
+- **El fondo generado sale como una textura plana/marrón uniforme, sin
+  árboles/cielo/detalle**: casi siempre es porque el recorte del artwork es
+  muy pequeño en relación con el lienzo completo (FLUX tiene muy poco
+  contexto real del que extrapolar). Recorta el artwork lo más grande
+  posible dentro de la carta, y si sigue pasando, usa calidad "Baja" para
+  iterar rápido: al reducir la resolución total, el recorte ocupa una
+  fracción mayor del lienzo y FLUX tiene más contexto relativo del que
+  partir.
+- **Generación muy lenta o error de memoria (CUDA out of memory)**: baja la
+  calidad a "Baja"/"Normal", reduce `steps`, o usa una variante GGUF más
+  agresiva (ver sección de instalación).
 - **Los paneles no encajan/objetos "duplicados" en el centro**: revisa que
   el rectángulo de recorte cubra exactamente la ilustración y no incluya
   el marco de la carta.
+- **El centro del resultado muestra el recorte del artwork en vez de la
+  carta completa**: no debería ocurrir (la carta completa se reinserta por
+  código sobre la celda central tras generar, ver
+  [Geometría de la composición](#geometría-de-la-composición)); si lo ves,
+  es un bug — revisa que estés en una versión del proyecto posterior a este
+  cambio.
 
 ## Privacidad
 

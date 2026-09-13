@@ -11,8 +11,7 @@ import { DEFAULT_COMFYUI_URL } from '@/lib/config';
 import type { GenerateFormValues, ProgressResponse, Rect } from '@/lib/types';
 
 const DEFAULT_VALUES: GenerateFormValues = {
-  panelWidth: 512,
-  panelHeight: 512,
+  quality: 'normal',
   positivePrompt: '',
   negativePrompt: '',
   seed: 0,
@@ -26,6 +25,7 @@ export default function HomePage() {
   const [file, setFile] = useState<File | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [cropRect, setCropRect] = useState<Rect | null>(null);
+  const [cardSize, setCardSize] = useState<{ width: number; height: number } | null>(null);
   const [values, setValues] = useState<GenerateFormValues>(DEFAULT_VALUES);
   const [status, setStatus] = useState<ProgressResponse | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -43,6 +43,7 @@ export default function HomePage() {
     setFile(selected);
     setImageUrl(URL.createObjectURL(selected));
     setCropRect(null);
+    setCardSize(null);
     setStatus(null);
   }
 
@@ -59,8 +60,7 @@ export default function HomePage() {
     form.append('cropY', String(cropRect.y));
     form.append('cropWidth', String(cropRect.width));
     form.append('cropHeight', String(cropRect.height));
-    form.append('panelWidth', String(values.panelWidth));
-    form.append('panelHeight', String(values.panelHeight));
+    form.append('quality', values.quality);
     form.append('positivePrompt', values.positivePrompt);
     form.append('negativePrompt', values.negativePrompt);
     form.append('seed', String(values.seed));
@@ -108,7 +108,9 @@ export default function HomePage() {
       <header className="page__header">
         <h1>Expansor de fondos para cartas coleccionables</h1>
         <p className="hint">
-          Ejecucion 100% local con ComfyUI. Ninguna imagen sale de tu ordenador.
+          Ejecucion 100% local con ComfyUI. Ninguna imagen sale de tu ordenador. El resultado es una
+          cuadricula 3x3: tu carta completa en el centro, y 8 imagenes generadas por IA que continuan
+          su ilustracion hacia fuera.
         </p>
       </header>
 
@@ -120,12 +122,12 @@ export default function HomePage() {
         <section className="workspace">
           <div className="workspace__crop">
             <div className="workspace__crop-header">
-              <h2>1. Selecciona el area exacta de la ilustracion</h2>
+              <h2>1. Selecciona el artwork de la carta</h2>
               <button type="button" className="btn btn--secondary" onClick={() => handleFileSelected(file!)}>
                 Cambiar imagen
               </button>
             </div>
-            <CropSelector imageUrl={imageUrl} onCropChange={setCropRect} />
+            <CropSelector imageUrl={imageUrl} onCropChange={setCropRect} onImageLoad={(w, h) => setCardSize({ width: w, height: h })} />
           </div>
 
           <div className="workspace__controls">
@@ -137,6 +139,7 @@ export default function HomePage() {
               onGenerate={handleGenerate}
               disabled={isGenerating}
               canGenerate={cropRect !== null}
+              cardSize={cardSize}
             />
           </div>
         </section>

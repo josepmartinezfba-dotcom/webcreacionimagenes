@@ -8,9 +8,10 @@ import type { Rect } from '@/lib/types';
 interface CropSelectorProps {
   imageUrl: string;
   onCropChange: (rect: Rect | null) => void;
+  onImageLoad?: (naturalWidth: number, naturalHeight: number) => void;
 }
 
-export default function CropSelector({ imageUrl, onCropChange }: CropSelectorProps) {
+export default function CropSelector({ imageUrl, onCropChange, onImageLoad }: CropSelectorProps) {
   const [crop, setCrop] = useState<Crop>();
 
   function handleComplete(pixelCrop: PixelCrop, img: HTMLImageElement) {
@@ -40,9 +41,23 @@ export default function CropSelector({ imageUrl, onCropChange }: CropSelectorPro
         keepSelection
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img id="source-image-el" src={imageUrl} alt="Carta original" className="crop-selector__image" />
+        <img
+          id="source-image-el"
+          src={imageUrl}
+          alt="Carta original"
+          className="crop-selector__image"
+          onLoad={(e) => {
+            const img = e.currentTarget;
+            onImageLoad?.(img.naturalWidth, img.naturalHeight);
+          }}
+        />
       </ReactCrop>
-      <p className="hint">Dibuja un rectangulo exactamente sobre la ilustracion de la carta (sin marco ni texto).</p>
+      <p className="hint">
+        Dibuja un rectangulo sobre el <strong>artwork/ilustracion</strong> de la carta (sin marco ni
+        texto): es la referencia visual que usara la IA para continuar el escenario. La carta{' '}
+        <strong>completa</strong> (tal cual la subiste) es la que aparecera intacta en el centro del
+        resultado.
+      </p>
     </div>
   );
 }

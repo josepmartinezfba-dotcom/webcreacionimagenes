@@ -239,6 +239,40 @@ body {
   gap: 8px;
 }
 
+.quality-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quality-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  align-items: baseline;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-alt);
+  cursor: pointer;
+}
+
+.quality-option.is-selected {
+  border-color: var(--accent);
+}
+
+.quality-option__label {
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.quality-option__desc {
+  grid-column: 2;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
 .field-with-button input {
   flex: 1;
 }

@@ -1,19 +1,21 @@
 import { randomUUID } from 'crypto';
-import { buildExpandedCanvas, reinsertOriginalArtwork } from '@/lib/image/canvas';
+import { buildExpandedCanvas, reinsertOriginalCard } from '@/lib/image/canvas';
 import { splitIntoPanels } from '@/lib/image/split';
 import { createZipBuffer } from '@/lib/image/zip';
 import { checkComfyStatus, fetchOutputImage, queuePrompt, uploadImage, waitForPrompt } from '@/lib/comfyui/client';
 import { buildPrompt, loadWorkflowMap } from '@/lib/workflow/loader';
 import { updateJob } from '@/lib/jobs';
 import type { Rect } from '@/lib/image/types';
+import type { QualityPreset } from '@/lib/cardGeometry';
 
 export interface RunOutpaintParams {
   jobId: string;
   comfyUrl: string;
+  /** La carta completa tal y como la subio el usuario. */
   sourceImageBuffer: Buffer;
-  cropRect: Rect;
-  panelWidth: number;
-  panelHeight: number;
+  /** Rectangulo del artwork/ilustracion dentro de sourceImageBuffer (referencia visual para el outpainting). */
+  artworkCropRect: Rect;
+  quality: QualityPreset;
   positivePrompt?: string;
   negativePrompt?: string;
   seed: number;
@@ -55,9 +57,8 @@ export async function runOutpaintJob(params: RunOutpaintParams): Promise<void> {
     updateJob(jobId, { phase: 'uploading' });
     const canvasResult = await buildExpandedCanvas({
       sourceImageBuffer: params.sourceImageBuffer,
-      cropRect: params.cropRect,
-      panelWidth: params.panelWidth,
-      panelHeight: params.panelHeight
+      artworkCropRect: params.artworkCropRect,
+      quality: params.quality
     });
 
     const canvasUpload = await uploadImage(
@@ -111,7 +112,7 @@ export async function runOutpaintJob(params: RunOutpaintParams): Promise<void> {
     updateJob(jobId, { phase: 'compositing' });
     const generatedBuffer = await fetchOutputImage(params.comfyUrl, output.filename, output.subfolder, output.type);
 
-    const finalPng = await reinsertOriginalArtwork(generatedBuffer, canvasResult.resizedArtworkPng, canvasResult.placement);
+    const finalPng = await reinsertOriginalCard(generatedBuffer, canvasResult.resizedFullCardPng, canvasResult.cardPlacement);
 
     const panels = await splitIntoPanels(finalPng, canvasResult.panelWidth, canvasResult.panelHeight);
     const zipBuffer = await createZipBuffer(panels, finalPng);

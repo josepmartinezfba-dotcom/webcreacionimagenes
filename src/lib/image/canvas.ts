@@ -1,74 +1,104 @@
 import sharp from 'sharp';
+import { computePanelDimensions, type QualityPreset } from '@/lib/cardGeometry';
 import { createMaskBuffer } from './mask';
 import type { ExpandedCanvasResult, Rect } from './types';
 
 /**
- * Redondea al multiplo mas cercano (minimo `min`). Los modelos de difusion
- * (incluido FLUX) trabajan en el espacio latente con un factor de reduccion
- * de 8-16x, asi que el ancho/alto final deben ser multiplos de 16 para
- * evitar artefactos o errores del VAE.
+ * Color de fondo del lienzo antes de enviarlo a ComfyUI. Es irrelevante
+ * para el resultado (ver comentario en mask.ts: `InpaintModelConditioning`
+ * sustituye por gris neutro cualquier pixel marcado como "generar" antes
+ * de codificarlo), pero usamos gris neutro para que una inspeccion manual
+ * de `canvas.png` sea facil de leer.
  */
-export function alignToMultiple(value: number, multiple = 16, min = 64): number {
-  const aligned = Math.round(value / multiple) * multiple;
-  return Math.max(min, aligned);
-}
+const CANVAS_BACKGROUND = { r: 127, g: 127, b: 127 };
 
-/**
- * Calcula el color medio del artwork (muestreando un borde de unos pocos
- * pixeles) para usarlo como fondo inicial del lienzo. Da a la IA un punto
- * de partida tonal mas coherente que un gris neutro cuando el denoise es
- * bajo.
- */
-async function estimateBorderColor(image: sharp.Sharp): Promise<{ r: number; g: number; b: number }> {
-  const { dominant } = await image.stats().then((stats) => ({
-    dominant: stats.dominant
-  }));
-  return { r: dominant.r, g: dominant.g, b: dominant.b };
+/** Fraccion del lado corto del panel usada como radio de difuminado del borde de la mascara. */
+const FEATHER_RATIO = 0.02;
+const FEATHER_MIN_PX = 4;
+const FEATHER_MAX_PX = 24;
+
+function computeFeatherPx(panelWidth: number, panelHeight: number): number {
+  const raw = Math.min(panelWidth, panelHeight) * FEATHER_RATIO;
+  return Math.min(FEATHER_MAX_PX, Math.max(FEATHER_MIN_PX, Math.round(raw)));
 }
 
 export interface BuildExpandedCanvasParams {
+  /** La carta completa tal y como la subio el usuario (foto/escaneo). */
   sourceImageBuffer: Buffer;
-  cropRect: Rect;
-  panelWidth: number;
-  panelHeight: number;
+  /** Rectangulo, en pixeles de sourceImageBuffer, que el usuario marco como el artwork/ilustracion. */
+  artworkCropRect: Rect;
+  quality: QualityPreset;
 }
 
 /**
- * Construye el lienzo 3x3 con el artwork centrado (sin deformar, escalado
- * a "contain" dentro de la celda central) y su mascara de proteccion.
+ * Construye el lienzo 3x3 que se envia a ComfyUI y su mascara.
+ *
+ * Puntos clave del diseño (ver tambien la discusion en el README del
+ * proyecto):
+ * - El tamaño de panel (y por tanto de las 9 celdas) se deriva SIEMPRE de
+ *   la relacion de aspecto de la carta completa (`sourceImageBuffer`), no
+ *   del recorte del artwork ni de un ancho/alto arbitrario introducido a
+ *   mano. Así la celda central puede alojar la carta completa sin
+ *   letterboxing: como panelWidth:panelHeight == cardWidth:cardHeight por
+ *   construccion, un resize "fill" de la carta a panelWidth x panelHeight
+ *   no la deforma.
+ * - Solo el recorte del artwork (no la carta completa, que incluiria el
+ *   marco/texto) se usa como semilla visual para el outpainting: es lo
+ *   unico que FLUX "ve" como contexto real al continuar el escenario.
+ * - La carta completa (`resizedFullCardPng`) se guarda aparte para
+ *   reinsertarla intacta en la celda central DESPUES de generar (ver
+ *   `reinsertOriginalCard`); nunca se envia a la IA como si fuera el
+ *   resultado final del centro.
  */
 export async function buildExpandedCanvas(params: BuildExpandedCanvasParams): Promise<ExpandedCanvasResult> {
-  const { sourceImageBuffer, cropRect } = params;
-  const panelWidth = alignToMultiple(params.panelWidth);
-  const panelHeight = alignToMultiple(params.panelHeight);
+  const { sourceImageBuffer, artworkCropRect } = params;
+
+  const cardMeta = await sharp(sourceImageBuffer).metadata();
+  if (!cardMeta.width || !cardMeta.height) {
+    throw new Error('No se pudo leer el tamaño de la imagen de la carta.');
+  }
+
+  const { width: panelWidth, height: panelHeight } = computePanelDimensions(
+    cardMeta.width,
+    cardMeta.height,
+    params.quality
+  );
 
   const canvasWidth = panelWidth * 3;
   const canvasHeight = panelHeight * 3;
+  const centerX = panelWidth;
+  const centerY = panelHeight;
 
-  const rectX = Math.round(cropRect.x);
-  const rectY = Math.round(cropRect.y);
-  const rectW = Math.max(1, Math.round(cropRect.width));
-  const rectH = Math.max(1, Math.round(cropRect.height));
+  // Carta completa, redimensionada para llenar exactamente la celda
+  // central (sin letterboxing: la proporcion ya coincide por diseño).
+  const resizedFullCardPng = await sharp(sourceImageBuffer)
+    .resize(panelWidth, panelHeight, { fit: 'fill', kernel: sharp.kernel.lanczos3 })
+    .png()
+    .toBuffer();
+  const cardPlacement: Rect = { x: centerX, y: centerY, width: panelWidth, height: panelHeight };
 
-  const croppedArtwork = sharp(sourceImageBuffer).extract({ left: rectX, top: rectY, width: rectW, height: rectH });
+  // Recorte del artwork, escalado a "contain" dentro de la celda central
+  // (sin deformar) para usarlo como semilla del outpainting.
+  const rectX = Math.round(artworkCropRect.x);
+  const rectY = Math.round(artworkCropRect.y);
+  const rectW = Math.max(1, Math.round(artworkCropRect.width));
+  const rectH = Math.max(1, Math.round(artworkCropRect.height));
 
-  const scale = Math.min(panelWidth / rectW, panelHeight / rectH);
-  const resizedW = Math.max(1, Math.round(rectW * scale));
-  const resizedH = Math.max(1, Math.round(rectH * scale));
+  const artworkSeedScale = Math.min(panelWidth / rectW, panelHeight / rectH);
+  const seedWidth = Math.max(1, Math.round(rectW * artworkSeedScale));
+  const seedHeight = Math.max(1, Math.round(rectH * artworkSeedScale));
 
-  const resizedArtworkPng = await croppedArtwork
-    .clone()
-    .resize(resizedW, resizedH, { fit: 'fill', kernel: sharp.kernel.lanczos3 })
+  const artworkSeedPng = await sharp(sourceImageBuffer)
+    .extract({ left: rectX, top: rectY, width: rectW, height: rectH })
+    .resize(seedWidth, seedHeight, { fit: 'fill', kernel: sharp.kernel.lanczos3 })
     .png()
     .toBuffer();
 
-  const backgroundColor = await estimateBorderColor(sharp(resizedArtworkPng));
-
-  const placement: Rect = {
-    x: Math.round((canvasWidth - resizedW) / 2),
-    y: Math.round((canvasHeight - resizedH) / 2),
-    width: resizedW,
-    height: resizedH
+  const seedPlacement: Rect = {
+    x: centerX + Math.round((panelWidth - seedWidth) / 2),
+    y: centerY + Math.round((panelHeight - seedHeight) / 2),
+    width: seedWidth,
+    height: seedHeight
   };
 
   const canvasPng = await sharp({
@@ -76,20 +106,22 @@ export async function buildExpandedCanvas(params: BuildExpandedCanvasParams): Pr
       width: canvasWidth,
       height: canvasHeight,
       channels: 3,
-      background: backgroundColor
+      background: CANVAS_BACKGROUND
     }
   })
-    .composite([{ input: resizedArtworkPng, left: placement.x, top: placement.y }])
+    .composite([{ input: artworkSeedPng, left: seedPlacement.x, top: seedPlacement.y }])
     .png()
     .toBuffer();
 
-  const maskPng = await createMaskBuffer(canvasWidth, canvasHeight, placement);
+  const featherPx = computeFeatherPx(panelWidth, panelHeight);
+  const maskPng = await createMaskBuffer(canvasWidth, canvasHeight, seedPlacement, featherPx);
 
   return {
     canvasPng,
     maskPng,
-    resizedArtworkPng,
-    placement,
+    resizedFullCardPng,
+    cardPlacement,
+    seedPlacement,
     canvasWidth,
     canvasHeight,
     panelWidth,
@@ -98,17 +130,20 @@ export async function buildExpandedCanvas(params: BuildExpandedCanvasParams): Pr
 }
 
 /**
- * Vuelve a pegar el artwork original (bytes exactos, sin recomprimir con
- * perdida) sobre la imagen generada por la IA, garantizando que ningun
- * pixel original fue alterado por el modelo.
+ * Vuelve a pegar la carta original completa (bytes exactos, sin
+ * recomprimir con perdida) sobre la celda central de la imagen generada
+ * por la IA. Da igual lo que FLUX haya dibujado ahi (la semilla del
+ * artwork, el margen gris de letterboxing, etc.): esa zona queda
+ * completamente sustituida, garantizando que ningun pixel de la carta
+ * original fue alterado por el modelo.
  */
-export async function reinsertOriginalArtwork(
+export async function reinsertOriginalCard(
   generatedPng: Buffer,
-  resizedArtworkPng: Buffer,
-  placement: Rect
+  resizedFullCardPng: Buffer,
+  cardPlacement: Rect
 ): Promise<Buffer> {
   return sharp(generatedPng)
-    .composite([{ input: resizedArtworkPng, left: placement.x, top: placement.y }])
+    .composite([{ input: resizedFullCardPng, left: cardPlacement.x, top: cardPlacement.y }])
     .png()
     .toBuffer();
 }

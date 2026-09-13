@@ -40,7 +40,7 @@
   "6": {
     "class_type": "CLIPTextEncode",
     "inputs": {
-      "text": "high quality illustration, consistent art style, seamless continuation of background, matching lighting and perspective",
+      "text": "seamless outpainting of the exact same illustrated scene, continue the existing background art in the same illustration style, same color palette, lighting, perspective and level of detail, extend the trees, sky, clouds, ground, water, mountains and buildings naturally beyond the frame, cohesive single artwork, no new characters, no text",
       "clip": ["2", 0]
     },
     "_meta": { "title": "Prompt positivo" }
@@ -48,7 +48,7 @@
   "7": {
     "class_type": "CLIPTextEncode",
     "inputs": {
-      "text": "blurry, distorted, low quality, seams, visible border, mismatched style, watermark, text, extra objects",
+      "text": "trading card, playing card, card frame, card border, picture frame, text, letters, numbers, watermark, signature, logo, symbol, ui elements, collage, grid lines, seams, hard edges, duplicate character, extra character, multiple characters, cropped, jpeg artifacts, blurry, low detail, flat color, plain background, empty background, solid color background, uniform texture, noise, distorted, deformed, low quality",
       "clip": ["2", 0]
     },
     "_meta": { "title": "Prompt negativo" }

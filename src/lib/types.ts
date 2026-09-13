@@ -1,3 +1,5 @@
+import type { QualityPreset } from '@/lib/cardGeometry';
+
 export interface Rect {
   x: number;
   y: number;
@@ -6,8 +8,7 @@ export interface Rect {
 }
 
 export interface GenerateFormValues {
-  panelWidth: number;
-  panelHeight: number;
+  quality: QualityPreset;
   positivePrompt: string;
   negativePrompt: string;
   seed: number;

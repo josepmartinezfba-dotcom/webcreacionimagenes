@@ -9,8 +9,9 @@ export interface PanelImage {
 
 /**
  * Divide matematicamente (sin IA) la composicion 3x3 final en las 8
- * imagenes exteriores. El panel central (el artwork) se descarta aqui: no
- * forma parte de las 8 exportaciones solicitadas.
+ * imagenes exteriores. El panel central (la carta original completa, ya
+ * reinsertada por `reinsertOriginalCard`) se descarta aqui: no forma parte
+ * de las 8 exportaciones solicitadas.
  */
 export async function splitIntoPanels(
   finalCanvasPng: Buffer,
