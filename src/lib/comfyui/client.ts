@@ -53,14 +53,22 @@ export async function checkComfyStatus(baseUrl: string): Promise<ComfyStatus> {
   }
 }
 
+// Nodos de carga de modelo de difusion que la app sabe validar contra
+// ComfyUI. Incluye el loader nativo y las variantes GGUF de ComfyUI-GGUF
+// (city96), todas expuestas con el mismo input "unet_name". Si el
+// workflow activo usa cualquiera de estos, se comprueba el archivo
+// declarado contra la lista real que ComfyUI reporta para ese nodo
+// concreto (no se asume un unico nombre de archivo "obligatorio").
+const UNET_LOADER_CLASS_TYPES = ['UNETLoader', 'UnetLoaderGGUF', 'UnetLoaderGGUFAdvanced'];
+
 async function findMissingModels(url: string): Promise<string[]> {
   const { workflow, map } = await loadWorkflowMap();
   const missing: string[] = [];
 
   const checks: Array<{ classType: string; input: string; filename: string | undefined }> = [];
   for (const node of Object.values(workflow)) {
-    if (node.class_type === 'UNETLoader') {
-      checks.push({ classType: 'UNETLoader', input: 'unet_name', filename: node.inputs.unet_name as string });
+    if (UNET_LOADER_CLASS_TYPES.includes(node.class_type)) {
+      checks.push({ classType: node.class_type, input: 'unet_name', filename: node.inputs.unet_name as string });
     }
     if (node.class_type === 'DualCLIPLoader') {
       checks.push({ classType: 'DualCLIPLoader', input: 'clip_name1', filename: node.inputs.clip_name1 as string });

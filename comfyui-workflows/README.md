@@ -16,19 +16,37 @@ específicamente para inpainting/outpainting con máscara.
   que es exactamente la prioridad de este proyecto.
 - Corre completamente local, con pesos abiertos descargables, sin cuota ni
   API de pago.
-- Existe una versión **fp8** oficial que reduce el requisito de VRAM a unos
-  12 GB manteniendo muy buena calidad.
+- Existe una versión **fp8** oficial (~12 GB VRAM) y versiones **GGUF**
+  cuantizadas de la comunidad (city96) que bajan el requisito hasta 6-8 GB
+  VRAM manteniendo una calidad muy razonable.
+
+## Carga del modelo: GGUF (por defecto) vs. checkpoint nativo
+
+Por defecto este workflow carga el UNET con el nodo `UnetLoaderGGUF` del
+custom node **[ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF)**
+(city96), apuntando a un checkpoint cuantizado
+(`flux1-fill-dev-Q4_K_S.gguf` u otra variante Q4/Q5/Q8 que coloques en
+`ComfyUI/models/diffusion_models/` o `ComfyUI/models/unet/`). Es la opción
+pensada para GPUs de 8 GB de VRAM (por ejemplo, portátiles con RTX 4070
+Laptop).
+
+Si tu GPU tiene 16-24 GB de VRAM y prefieres el checkpoint bf16/fp8
+oficial sin cuantizar, sustituye el nodo `UnetLoaderGGUF` por el nativo
+`UNETLoader` (input `unet_name` + `weight_dtype: "default"`), apuntando a
+`flux1-fill-dev.safetensors` en `ComfyUI/models/unet/`. El resto del grafo
+(CLIP, VAE, conditioning, sampler) no cambia: ambos nodos devuelven un
+`MODEL` compatible con `KSampler`.
 
 ## Grafo de nodos
 
 ```
-UNETLoader (FLUX Fill) ─────────────┐
-DualCLIPLoader (clip_l + t5xxl) ──┐  │
-VAELoader (ae.safetensors) ────┐  │  │
-                                │  │  │
-LoadImage (lienzo) ──┐          │  │  │
+UnetLoaderGGUF (FLUX Fill Q4_K_S) ───┐
+DualCLIPLoader (clip_l + t5xxl) ───┐  │
+VAELoader (ae.safetensors) ─────┐  │  │
+                                 │  │  │
+LoadImage (lienzo) ──┐           │  │  │
 LoadImageMask (mask)─┼─► InpaintModelConditioning ──► KSampler ──► VAEDecode ──► SaveImage
-CLIPTextEncode (+) ──┤          ▲  │
+CLIPTextEncode (+) ──┤           ▲  │
 CLIPTextEncode (-) ──┴► FluxGuidance
 ```
 

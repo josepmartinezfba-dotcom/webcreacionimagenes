@@ -35,6 +35,12 @@ internet.
 - **Workflow:** `comfyui-workflows/flux_fill_outpaint.json` (formato API de
   ComfyUI). Usa el nodo nativo `InpaintModelConditioning` + `FluxGuidance`,
   el patrón recomendado oficialmente para FLUX Fill.
+- **Carga del UNET:** por defecto, cuantizado en **GGUF** (`UnetLoaderGGUF`
+  del custom node [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF)
+  de city96), pensado para GPUs de 8 GB de VRAM. CLIP (`clip_l` + `t5xxl`)
+  y VAE se cargan sin cuantizar con los nodos nativos. Ver
+  `comfyui-workflows/README.md` para usar en su lugar el checkpoint nativo
+  bf16/fp8 si tienes más VRAM.
 - **Todo corre localmente** contra `http://127.0.0.1:8188`, la API HTTP que
   expone ComfyUI cuando se ejecuta en tu ordenador.
 
@@ -86,45 +92,50 @@ página oficial de releases de ComfyUI:
 
 ### 2. Descargar el modelo FLUX.1-Fill-dev
 
-Necesitas 3 archivos (pesos abiertos, descarga gratuita desde Hugging
-Face, requiere aceptar la licencia de Black Forest Labs en la página del
-modelo):
+El workflow incluido usa por defecto una versión **GGUF cuantizada** del
+UNET (pensada para GPUs de 8 GB de VRAM, como una RTX 4070 Laptop), más
+CLIP y VAE sin cuantizar:
 
 | Archivo | Carpeta destino | Origen |
 |---|---|---|
-| `flux1-fill-dev.safetensors` (o la variante **fp8** para menos VRAM, p.ej. de la comunidad) | `ComfyUI\models\unet\` | https://huggingface.co/black-forest-labs/FLUX.1-Fill-dev |
+| `flux1-fill-dev-Q4_K_S.gguf` (o Q4_K_M/Q5_K_S si tu GPU tiene algo más de VRAM) | `ComfyUI\models\diffusion_models\` (o `\unet\`) | https://huggingface.co/city96/FLUX.1-Fill-dev-gguf |
 | `clip_l.safetensors` | `ComfyUI\models\clip\` | https://huggingface.co/comfyanonymous/flux_text_encoders |
 | `t5xxl_fp8_e4m3fn.safetensors` | `ComfyUI\models\clip\` | https://huggingface.co/comfyanonymous/flux_text_encoders |
 | `ae.safetensors` (VAE de FLUX) | `ComfyUI\models\vae\` | https://huggingface.co/black-forest-labs/FLUX.1-Fill-dev |
 
 **Notas sobre VRAM:**
-- Con 24 GB de VRAM: usa `flux1-fill-dev.safetensors` (bf16) directamente.
-- Con 12-16 GB de VRAM: usa una versión **fp8** del checkpoint
-  (`weight_dtype: default` en el workflow ya es compatible con archivos
-  fp8, no hace falta cambiar nada) o una versión **GGUF** cuantizada
-  (requiere el custom node `ComfyUI-GGUF`, ver más abajo) para <12 GB.
-- Si tu tarjeta tiene menos de 8 GB de VRAM, la generación será lenta o
-  puede no caber en memoria; en ese caso valora usar una versión GGUF muy
-  cuantizada (Q4/Q5).
+- **8 GB de VRAM** (p.ej. RTX 4070 Laptop): usa el GGUF `Q4_K_S` como en la
+  tabla — es la configuración por defecto del proyecto.
+- **12-16 GB de VRAM**: puedes usar un GGUF menos agresivo (`Q5_K_S`/`Q8_0`)
+  o el checkpoint **fp8** oficial con el nodo nativo `UNETLoader`.
+- **24 GB de VRAM**: usa `flux1-fill-dev.safetensors` (bf16) con
+  `UNETLoader` directamente, sin cuantizar.
 
-Si cambias de archivo (por ejemplo usas una versión GGUF), edita
-`comfyui-workflows/flux_fill_outpaint.json` y ajusta el nombre de archivo
-en el nodo `UNET Loader (Modelo FLUX Fill)` (y, si usas GGUF, sustituye el
-nodo `UNETLoader` por `UnetLoaderGGUF` del custom node correspondiente).
+Para cambiar entre variantes GGUF (por ejemplo pasar de `Q4_K_S` a
+`Q5_K_S`), basta con editar `comfyui-workflows/flux_fill_outpaint.json` y
+ajustar el nombre de archivo en el input `unet_name` del nodo
+`UNET Loader GGUF (Modelo FLUX Fill Q4_K_S)`. Para volver al checkpoint
+nativo sin cuantizar, sustituye ese nodo por `UNETLoader`
+(`unet_name` + `weight_dtype: "default"`) apuntando a
+`flux1-fill-dev.safetensors`; el resto del grafo no cambia (ver detalles
+en `comfyui-workflows/README.md`).
 
 ### 3. Custom nodes necesarios
 
-Con una instalación reciente de ComfyUI (2024 en adelante), **todos los
-nodos usados por el workflow son nativos**: `UNETLoader`, `DualCLIPLoader`,
-`VAELoader`, `LoadImage`, `LoadImageMask`, `CLIPTextEncode`,
-`FluxGuidance`, `InpaintModelConditioning`, `KSampler`, `VAEDecode`,
-`SaveImage`. **No necesitas instalar ningún custom node** para el flujo por
-defecto.
+Con una instalación reciente de ComfyUI (2024 en adelante), la mayoría de
+nodos usados por el workflow son nativos: `DualCLIPLoader`, `VAELoader`,
+`LoadImage`, `LoadImageMask`, `CLIPTextEncode`, `FluxGuidance`,
+`InpaintModelConditioning`, `KSampler`, `VAEDecode`, `SaveImage`.
 
-Solo si decides usar un checkpoint **GGUF** para ahorrar VRAM necesitarás
-el custom node:
-- [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) — instálalo desde
-  el "ComfyUI Manager" o clonándolo en `ComfyUI\custom_nodes\`.
+La carga del UNET en formato **GGUF** (la configuración por defecto de
+este proyecto) sí requiere un custom node:
+- [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) (de city96) —
+  instálalo desde el "ComfyUI Manager" o clonándolo en
+  `ComfyUI\custom_nodes\`. Aporta el nodo `UnetLoaderGGUF` que usa el
+  workflow.
+
+Si en su lugar usas el checkpoint nativo sin cuantizar (`UNETLoader`), no
+necesitas ningún custom node adicional.
 
 Si tu versión de ComfyUI es antigua y no reconoce `InpaintModelConditioning`
 o `FluxGuidance`, actualízala (en el portable: ejecuta
@@ -187,8 +198,11 @@ ComfyUI**:
   `http://127.0.0.1:8188` (o la que corresponda si cambiaste el puerto).
 - Si aparece "Faltan modelos: ..." significa que ComfyUI está activo pero
   no encuentra alguno de los archivos de modelo — revisa la tabla de la
-  sección de instalación y las carpetas `ComfyUI\models\unet`,
-  `\clip`, `\vae`.
+  sección de instalación y las carpetas `ComfyUI\models\diffusion_models`
+  (o `\unet`), `\clip`, `\vae`. Si el que falta es el `.gguf`, confirma
+  también que el custom node `ComfyUI-GGUF` está instalado (si no lo está,
+  ComfyUI no expondrá el nodo `UnetLoaderGGUF` y el workflow fallará al
+  encolarse).
 
 También puedes pulsar el botón **Comprobar conexión** en cualquier
 momento.
