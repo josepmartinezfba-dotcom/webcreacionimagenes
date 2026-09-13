@@ -1,0 +1,64 @@
+{
+  "description": "Capa de abstraccion entre la aplicacion y el grafo de ComfyUI. La app NUNCA referencia IDs de nodo directamente: busca el nodo por su titulo (_meta.title) dentro del workflow JSON y escribe en el input indicado. Si cambias de modelo o de workflow, solo tienes que mantener (o actualizar aqui) los titulos de los nodos relevantes.",
+  "workflowFile": "flux_fill_outpaint.json",
+  "roles": {
+    "inputImage": {
+      "nodeTitle": "Imagen de entrada (lienzo expandido)",
+      "input": "image",
+      "type": "image_filename"
+    },
+    "maskImage": {
+      "nodeTitle": "Mascara de outpainting",
+      "input": "image",
+      "type": "image_filename"
+    },
+    "positivePrompt": {
+      "nodeTitle": "Prompt positivo",
+      "input": "text",
+      "type": "string"
+    },
+    "negativePrompt": {
+      "nodeTitle": "Prompt negativo",
+      "input": "text",
+      "type": "string"
+    },
+    "guidance": {
+      "nodeTitle": "Guidance FLUX",
+      "input": "guidance",
+      "type": "number"
+    },
+    "seed": {
+      "nodeTitle": "KSampler (Muestreador)",
+      "input": "seed",
+      "type": "integer"
+    },
+    "steps": {
+      "nodeTitle": "KSampler (Muestreador)",
+      "input": "steps",
+      "type": "integer"
+    },
+    "denoise": {
+      "nodeTitle": "KSampler (Muestreador)",
+      "input": "denoise",
+      "type": "number"
+    },
+    "outputNode": {
+      "nodeTitle": "Guardar imagen resultado",
+      "type": "output"
+    }
+  },
+  "defaults": {
+    "positivePrompt": "high quality illustration, consistent art style, seamless continuation of background, matching lighting and perspective",
+    "negativePrompt": "blurry, distorted, low quality, seams, visible border, mismatched style, watermark, text, extra objects",
+    "guidance": 30,
+    "seed": 0,
+    "steps": 20,
+    "denoise": 1
+  },
+  "limits": {
+    "guidance": { "min": 1, "max": 100, "step": 0.5 },
+    "steps": { "min": 4, "max": 60, "step": 1 },
+    "denoise": { "min": 0.1, "max": 1, "step": 0.01 },
+    "seed": { "min": 0, "max": 4294967295 }
+  }
+}
